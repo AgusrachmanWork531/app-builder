@@ -30,7 +30,7 @@ export function extractJson(text: string): unknown {
 }
 
 /**
- * LLM-backed analyzer (e.g. Midas / deepseek-v4). The model's reply is treated
+ * LLM-backed analyzer (e.g. Midas / deepseek-v4-pro). The model's reply is treated
  * as untrusted input: it must parse and pass the same Zod schema as every
  * other specification. One corrective round is attempted on invalid output.
  */

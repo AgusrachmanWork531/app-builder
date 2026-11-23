@@ -23,17 +23,17 @@ function midas(fetchFn: typeof fetch, timeoutMs = 5000) {
     name: 'midas',
     baseUrl: 'https://gateway.example.com/v1/',
     apiKey: SECRET,
-    model: 'deepseek-v4',
+    model: 'deepseek-v4-pro',
     timeoutMs,
     fetchFn,
   });
 }
 
-describe('OpenAiCompatibleProvider (Midas / deepseek-v4)', () => {
+describe('OpenAiCompatibleProvider (Midas / deepseek-v4-pro)', () => {
   it('sends an OpenAI-style chat completion request and parses usage', async () => {
     const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({
-        model: 'deepseek-v4',
+        model: 'deepseek-v4-pro',
         choices: [{ message: { content: '{"ok":true}' } }],
         usage: { prompt_tokens: 12, completion_tokens: 5 },
       }),
@@ -52,7 +52,7 @@ describe('OpenAiCompatibleProvider (Midas / deepseek-v4)', () => {
     expect(url).toBe('https://gateway.example.com/v1/chat/completions');
     expect((init?.headers as Record<string, string>).authorization).toBe(`Bearer ${SECRET}`);
     expect(JSON.parse(init?.body as string)).toEqual({
-      model: 'deepseek-v4',
+      model: 'deepseek-v4-pro',
       messages: [
         { role: 'system', content: 'sys' },
         { role: 'user', content: 'hi' },
@@ -65,7 +65,7 @@ describe('OpenAiCompatibleProvider (Midas / deepseek-v4)', () => {
       text: '{"ok":true}',
       usage: { inputTokens: 12, outputTokens: 5 },
       provider: 'midas',
-      model: 'deepseek-v4',
+      model: 'deepseek-v4-pro',
     });
   });
 
@@ -197,26 +197,26 @@ describe('AnthropicProvider', () => {
 });
 
 describe('createLlmProvider', () => {
-  it('builds Midas with deepseek-v4 as the default model', () => {
+  it('builds Midas with deepseek-v4-pro as the default model', () => {
     const provider = createLlmProvider({
       LLM_PROVIDER: 'midas',
       LLM_TIMEOUT_MS: 1000,
       MIDAS_API_KEY: SECRET,
       MIDAS_BASE_URL: 'https://gateway.example.com/v1',
     });
-    expect(provider).toMatchObject({ name: 'midas', model: 'deepseek-v4', isMock: false });
+    expect(provider).toMatchObject({ name: 'midas', model: 'deepseek-v4-pro', isMock: false });
   });
 
   it('honours an explicit model and falls back to mock without credentials', () => {
     expect(
       createLlmProvider({
         LLM_PROVIDER: 'midas',
-        LLM_MODEL: 'deepseek-v4-pro',
+        LLM_MODEL: 'dpe/alias/deepseek-flash',
         LLM_TIMEOUT_MS: 1000,
         MIDAS_API_KEY: SECRET,
         MIDAS_BASE_URL: 'https://gateway.example.com/v1',
       }).model,
-    ).toBe('deepseek-v4-pro');
+    ).toBe('dpe/alias/deepseek-flash');
     expect(createLlmProvider({ LLM_PROVIDER: 'mock', LLM_TIMEOUT_MS: 1000 }).isMock).toBe(true);
     expect(() => createLlmProvider({ LLM_PROVIDER: 'midas', LLM_TIMEOUT_MS: 1000 })).toThrow();
   });

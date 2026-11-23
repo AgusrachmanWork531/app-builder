@@ -8,7 +8,7 @@ pipeline** with clear boundaries for real AI agents:
 
 > **Mock-first.** Code generation runs on a deterministic **mock agent** and **mock
 > sandbox**; every artifact is labeled `MOCK`. Requirement analysis uses a deterministic
-> template matcher by default, or a real LLM (e.g. **Midas / `deepseek-v4`**) when
+> template matcher by default, or a real LLM (e.g. **Midas / `deepseek-v4-pro`**) when
 > configured. Nothing here executes AI-generated code. See
 > [Known limitations](#known-limitations).
 
@@ -65,20 +65,20 @@ If port 6379 is taken by a local Redis, set `REDIS_PORT=6380` and
 
 ## Commands
 
-| Command                                              | Does                                                               | Needs                                |
-| ---------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------ |
-| `pnpm install`                                       | Install workspace deps                                             | —                                    |
-| `pnpm infra:up` / `infra:down`                       | Start/stop PostgreSQL + Redis                                      | Docker                               |
-| `pnpm db:migrate`                                    | Apply Prisma migrations                                            | PostgreSQL                           |
-| `pnpm db:migrate:dev`                                | Create a new migration from schema changes                         | PostgreSQL                           |
-| `pnpm db:seed`                                       | Seed dev user + sample project                                     | PostgreSQL                           |
-| `pnpm dev`                                           | API + worker + web with watch                                      | PostgreSQL, Redis                    |
-| `pnpm dev:api` / `dev:worker` / `dev:web`            | Start one app (restart independently)                              | PostgreSQL, Redis (web: none)        |
-| `pnpm build`                                         | Build all packages and apps                                        | —                                    |
-| `pnpm lint` / `pnpm typecheck` / `pnpm format:check` | Static checks                                                      | —                                    |
-| `pnpm test`                                          | Unit tests (no infra)                                              | —                                    |
-| `pnpm test:integration`                              | Integration tests (real DB, Redis, BullMQ)                         | PostgreSQL, Redis, migrations        |
-| `pnpm test:e2e`                                      | Build + Playwright E2E on an isolated stack (API :4100, web :3100) | PostgreSQL, Redis, seeded DB, Chrome |
+| Command                                              | Does                                                                                                       | Needs                                |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `pnpm install`                                       | Install workspace deps                                                                                     | —                                    |
+| `pnpm infra:up` / `infra:down`                       | Start/stop PostgreSQL + Redis                                                                              | Docker                               |
+| `pnpm db:migrate`                                    | Apply Prisma migrations                                                                                    | PostgreSQL                           |
+| `pnpm db:migrate:dev`                                | Create a new migration from schema changes                                                                 | PostgreSQL                           |
+| `pnpm db:seed`                                       | Seed dev user + sample project                                                                             | PostgreSQL                           |
+| `pnpm dev`                                           | API + worker + web with watch                                                                              | PostgreSQL, Redis                    |
+| `pnpm dev:api` / `dev:worker` / `dev:web`            | Start one app (restart independently)                                                                      | PostgreSQL, Redis (web: none)        |
+| `pnpm build`                                         | Build all packages and apps                                                                                | —                                    |
+| `pnpm lint` / `pnpm typecheck` / `pnpm format:check` | Static checks                                                                                              | —                                    |
+| `pnpm test`                                          | Unit tests (no infra)                                                                                      | —                                    |
+| `pnpm test:integration`                              | Integration tests (real DB, Redis, BullMQ) on a dedicated `<db>_test` database (auto-created and migrated) | PostgreSQL, Redis                    |
+| `pnpm test:e2e`                                      | Build + Playwright E2E on an isolated stack (API :4100, web :3100)                                         | PostgreSQL, Redis, seeded DB, Chrome |
 
 ## Using it
 
@@ -96,8 +96,14 @@ If port 6379 is taken by a local Redis, set `REDIS_PORT=6380` and
 LLM_PROVIDER=midas
 MIDAS_BASE_URL=https://<gateway-host>/v1     # OpenAI-compatible; https required outside dev
 MIDAS_API_KEY=<secret>                        # server-side only
-# LLM_MODEL empty → deepseek-v4
+# LLM_MODEL empty → deepseek-v4-pro
 ```
+
+Model ids must exist on the gateway (`GET <MIDAS_BASE_URL>/models` lists them; e.g.
+`deepseek-v4-pro`, `dpe/unlimited/deepseek-v4.1-flash`, `dpe/alias/deepseek-flash`). An unknown
+id returns HTTP 404 → `EXTERNAL_PROVIDER_ERROR`. The gateway may route an id to a different
+underlying model (observed: `deepseek-v4-pro` answered by `…deepseek-v4-flash…`); the model
+reported by the gateway is what `llm_usage_records.model` stores.
 
 Requirement analysis then calls the model; its output is validated against the
 specification schema, token usage is stored in `llm_usage_records`, and calls are

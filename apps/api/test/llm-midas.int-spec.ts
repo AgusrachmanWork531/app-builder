@@ -76,7 +76,7 @@ afterAll(async () => {
   await new Promise((resolve) => gateway?.close(resolve));
 });
 
-describe('requirement analysis via Midas (deepseek-v4)', () => {
+describe('requirement analysis via Midas (deepseek-v4-pro)', () => {
   it('analyzes the prompt with the gateway and records token usage', async () => {
     const project = await t
       .http()
@@ -93,23 +93,23 @@ describe('requirement analysis via Midas (deepseek-v4)', () => {
       .expect(201);
 
     expect(res.body.data).toMatchObject({
-      analyzer: 'midas:deepseek-v4',
+      analyzer: 'midas:deepseek-v4-pro',
       specification: {
         appName: 'Recipe Hub',
-        analysis: { isMock: false, analyzer: 'midas:deepseek-v4' },
+        analysis: { isMock: false, analyzer: 'midas:deepseek-v4-pro' },
       },
     });
 
     const call = received.at(-1)!;
     expect(call.auth).toBe('Bearer test-midas-key');
-    expect(call.body.model).toBe('deepseek-v4');
+    expect(call.body.model).toBe('deepseek-v4-pro');
     expect(call.body.messages[1]?.content).toContain('home cooks share and rate recipes');
 
     const usage = await t.prisma.llmUsageRecord.findMany({ where: { projectId } });
     expect(usage).toHaveLength(1);
     expect(usage[0]).toMatchObject({
       provider: 'midas',
-      model: 'deepseek-v4',
+      model: 'deepseek-v4-pro',
       purpose: 'requirement-analysis',
       inputTokens: 321,
       outputTokens: 123,

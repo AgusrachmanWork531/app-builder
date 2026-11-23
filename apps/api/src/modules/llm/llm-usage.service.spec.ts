@@ -32,7 +32,7 @@ describe('LlmUsageService', () => {
   it('preserves the provider error when the usage write also fails', async () => {
     const failing: LlmProvider = {
       name: 'midas',
-      model: 'deepseek-v4',
+      model: 'deepseek-v4-pro',
       isMock: false,
       complete: () => Promise.reject(new RateLimitError('midas rate limit exceeded')),
     };
@@ -43,7 +43,7 @@ describe('LlmUsageService', () => {
   it('enforces the per-user rate limit for paid providers only', async () => {
     const paid: LlmProvider = {
       name: 'midas',
-      model: 'deepseek-v4',
+      model: 'deepseek-v4-pro',
       isMock: false,
       complete: new MockLlmProvider().complete.bind(new MockLlmProvider()),
     };

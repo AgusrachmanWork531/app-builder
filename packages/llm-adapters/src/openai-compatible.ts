@@ -22,7 +22,7 @@ interface ChatCompletionResponse {
 /**
  * Adapter for any OpenAI-compatible Chat Completions endpoint
  * (POST {baseUrl}/chat/completions, Bearer auth). Used for OpenAI itself and
- * for gateways such as Midas (e.g. model "deepseek-v4").
+ * for gateways such as Midas (e.g. model "deepseek-v4-pro").
  */
 export class OpenAiCompatibleProvider implements LlmProvider {
   readonly name: string;

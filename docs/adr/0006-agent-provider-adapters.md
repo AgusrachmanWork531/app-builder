@@ -13,7 +13,7 @@ paid credentials in development and CI, and must never present mock output as re
 - `AgentRuntime` (= Planning + Coding + Validation + Repair agent interfaces) in
   `packages/agent-core`; one deterministic `MockAgentRuntime` today.
 - `LlmProvider` in `packages/llm-adapters` with adapters for any OpenAI-compatible
-  endpoint (OpenAI, Midas `deepseek-v4`), Anthropic, and a mock; selected by
+  endpoint (OpenAI, Midas `deepseek-v4-pro`), Anthropic, and a mock; selected by
   `LLM_PROVIDER`, constructed only with credentials. Implemented with `fetch` (no SDK
   lock-in), bounded time/size, retry-classified errors.
 - `RequirementAnalyzer` uses the LLM when configured, otherwise a template matcher; all

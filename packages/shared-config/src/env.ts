@@ -39,7 +39,7 @@ export const DEFAULT_LLM_MODELS = {
   mock: 'mock-llm',
   openai: 'gpt-4.1-mini',
   anthropic: 'claude-sonnet-5-5',
-  midas: 'deepseek-v4',
+  midas: 'deepseek-v4-pro',
 } as const;
 
 const baseFields = {

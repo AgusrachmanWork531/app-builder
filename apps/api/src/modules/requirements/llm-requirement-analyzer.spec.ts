@@ -17,7 +17,7 @@ function usageWith(replies: string[]) {
   const provider = new MockLlmProvider(() => replies.shift() ?? '');
   const calls: { request: LlmRequest; context: LlmCallContext }[] = [];
   const usage = {
-    providerInfo: { name: 'midas', model: 'deepseek-v4', isMock: false },
+    providerInfo: { name: 'midas', model: 'deepseek-v4-pro', isMock: false },
     complete: vi.fn(async (request: LlmRequest, context: LlmCallContext) => {
       calls.push({ request, context });
       return provider.complete(request);
@@ -37,7 +37,7 @@ describe('LlmRequirementAnalyzer', () => {
       schemaVersion: 1,
       appName: 'Recipe Hub',
       analysis: {
-        analyzer: 'midas:deepseek-v4',
+        analyzer: 'midas:deepseek-v4-pro',
         isMock: false,
         matchedTemplate: null,
         warnings: [],
@@ -81,7 +81,7 @@ describe('LlmRequirementAnalyzer', () => {
       projectId: 'p1',
       userId: 'u1',
     });
-    expect(spec.analysis.analyzer).toBe('midas:deepseek-v4');
+    expect(spec.analysis.analyzer).toBe('midas:deepseek-v4-pro');
   });
 });
 

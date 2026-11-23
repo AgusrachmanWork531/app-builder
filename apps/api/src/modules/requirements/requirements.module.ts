@@ -14,7 +14,7 @@ import { RequirementsService } from './requirements.service';
     RequirementsService,
     {
       // LLM_PROVIDER=mock → deterministic template matcher; otherwise the
-      // configured LLM (e.g. Midas deepseek-v4) analyzes requirements.
+      // configured LLM (e.g. Midas deepseek-v4-pro) analyzes requirements.
       provide: REQUIREMENT_ANALYZER,
       inject: [LlmUsageService],
       useFactory: (llm: LlmUsageService) =>
