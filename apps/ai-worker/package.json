@@ -1,0 +1,26 @@
+{
+  "name": "@aab/ai-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Execution plane: BullMQ worker running build workflows (mock agent + mock sandbox)",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch --clear-screen=false src/main.ts",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aab/agent-core": "workspace:*",
+    "@aab/database": "workspace:*",
+    "@aab/job-contracts": "workspace:*",
+    "@aab/logger": "workspace:*",
+    "@aab/shared-config": "workspace:*",
+    "@aab/shared-types": "workspace:*",
+    "bullmq": "^6.7.8",
+    "ioredis": "^6.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
+  }
+}

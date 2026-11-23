@@ -1,0 +1,10 @@
+node_modules
+dist
+.next
+coverage
+pnpm-lock.yaml
+**/generated/**
+**/migrations/**
+docs/plan/master-prompt.md
+next-env.d.ts
+.claude

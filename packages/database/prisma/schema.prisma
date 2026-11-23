@@ -1,0 +1,293 @@
+// AI App Builder Engine — platform metadata database.
+//
+// This database stores control-plane metadata only. Generated applications
+// must NEVER receive this DATABASE_URL or any role on this database; they get
+// their own isolated database (future sandbox provider responsibility).
+//
+// Table purposes are documented in docs/architecture/data-model.md.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum BuildStatus {
+  PENDING
+  QUEUED
+  PLANNING
+  GENERATING
+  TESTING
+  REPAIRING
+  WAITING_APPROVAL
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum TaskStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+enum OutboxStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  displayName  String?  @map("display_name")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  projects     Project[]
+  requirements ProjectRequirement[]
+  buildJobs    BuildJob[]
+
+  @@map("users")
+}
+
+model Project {
+  id          String        @id @default(uuid()) @db.Uuid
+  ownerId     String        @map("owner_id") @db.Uuid
+  name        String        @db.VarChar(120)
+  description String?       @db.VarChar(2000)
+  status      ProjectStatus @default(ACTIVE)
+  /// ProjectSettings (validated by the API with Zod)
+  settings    Json          @default("{}")
+  archivedAt  DateTime?     @map("archived_at") @db.Timestamptz(3)
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  owner        User                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  requirements ProjectRequirement[]
+  buildJobs    BuildJob[]
+  artifacts    ProjectArtifact[]
+
+  @@index([ownerId, status, updatedAt(sort: Desc)])
+  @@map("projects")
+}
+
+model ProjectRequirement {
+  id               String   @id @default(uuid()) @db.Uuid
+  projectId        String   @map("project_id") @db.Uuid
+  revision         Int
+  rawPrompt        String   @map("raw_prompt")
+  normalizedPrompt String   @map("normalized_prompt")
+  /// Structured application specification produced by a RequirementAnalyzer
+  specification    Json
+  /// Analyzer that produced the specification, e.g. "mock"
+  analyzer         String   @db.VarChar(64)
+  createdById      String   @map("created_by_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // NoAction (checked at end of statement) instead of Restrict so a cascading
+  // project/user delete can remove dependent rows within the same statement.
+  createdBy User       @relation(fields: [createdById], references: [id], onDelete: NoAction)
+  buildJobs BuildJob[]
+
+  @@unique([projectId, revision])
+  @@index([createdById])
+  @@map("project_requirements")
+}
+
+model BuildJob {
+  id                String      @id @default(uuid()) @db.Uuid
+  projectId         String      @map("project_id") @db.Uuid
+  requirementId     String      @map("requirement_id") @db.Uuid
+  requestedById     String      @map("requested_by_id") @db.Uuid
+  status            BuildStatus @default(PENDING)
+  /// Current attempt number (incremented by explicit retry)
+  attempt           Int         @default(1)
+  maxAttempts       Int         @map("max_attempts")
+  repairAttempts    Int         @default(0) @map("repair_attempts")
+  /// Client-supplied Idempotency-Key, unique per requesting user
+  idempotencyKey    String?     @map("idempotency_key") @db.VarChar(128)
+  /// Build options, e.g. { "simulateFailure": "testing" } for mock mode
+  options           Json        @default("{}")
+  currentStep       String?     @map("current_step") @db.VarChar(64)
+  errorCode         String?     @map("error_code") @db.VarChar(64)
+  errorMessage      String?     @map("error_message")
+  errorDetails      Json?       @map("error_details")
+  workerId          String?     @map("worker_id") @db.VarChar(128)
+  cancelRequestedAt DateTime?   @map("cancel_requested_at") @db.Timestamptz(3)
+  startedAt         DateTime?   @map("started_at") @db.Timestamptz(3)
+  completedAt       DateTime?   @map("completed_at") @db.Timestamptz(3)
+  lastHeartbeatAt   DateTime?   @map("last_heartbeat_at") @db.Timestamptz(3)
+  /// Optimistic concurrency token, incremented on every status change
+  version           Int         @default(0)
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  project     Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requirement ProjectRequirement   @relation(fields: [requirementId], references: [id], onDelete: NoAction)
+  requestedBy User                 @relation(fields: [requestedById], references: [id], onDelete: NoAction)
+  events      BuildJobEvent[]
+  plans       ExecutionPlan[]
+  checkpoints WorkflowCheckpoint[]
+  artifacts   ProjectArtifact[]
+  llmUsage    LlmUsageRecord[]
+
+  @@unique([requestedById, idempotencyKey])
+  @@index([requirementId])
+  @@index([projectId, createdAt(sort: Desc)])
+  @@index([status, updatedAt])
+  @@map("build_jobs")
+}
+
+model BuildJobEvent {
+  id         String       @id @default(uuid()) @db.Uuid
+  buildJobId String       @map("build_job_id") @db.Uuid
+  /// Monotonic per build job; ordering key for event history and SSE replay
+  sequence   Int
+  type       String       @db.VarChar(64)
+  fromStatus BuildStatus? @map("from_status")
+  toStatus   BuildStatus? @map("to_status")
+  attempt    Int
+  step       String?      @db.VarChar(64)
+  message    String
+  metadata   Json         @default("{}")
+  /// Optional idempotency key so duplicate queue deliveries do not duplicate events
+  dedupeKey  String?      @map("dedupe_key") @db.VarChar(200)
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  buildJob BuildJob @relation(fields: [buildJobId], references: [id], onDelete: Cascade)
+
+  @@unique([buildJobId, sequence])
+  @@unique([buildJobId, dedupeKey])
+  @@map("build_job_events")
+}
+
+model ExecutionPlan {
+  id         String   @id @default(uuid()) @db.Uuid
+  buildJobId String   @map("build_job_id") @db.Uuid
+  attempt    Int
+  summary    String
+  /// Producer of the plan, e.g. "mock-agent"
+  producer   String   @db.VarChar(64)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  buildJob BuildJob        @relation(fields: [buildJobId], references: [id], onDelete: Cascade)
+  tasks    ExecutionTask[]
+
+  @@unique([buildJobId, attempt])
+  @@map("execution_plans")
+}
+
+model ExecutionTask {
+  id          String     @id @default(uuid()) @db.Uuid
+  planId      String     @map("plan_id") @db.Uuid
+  position    Int
+  key         String     @db.VarChar(64)
+  title       String
+  status      TaskStatus @default(PENDING)
+  /// Task output / technical decisions recorded by the agent
+  output      Json?
+  error       String?
+  startedAt   DateTime?  @map("started_at") @db.Timestamptz(3)
+  completedAt DateTime?  @map("completed_at") @db.Timestamptz(3)
+
+  plan ExecutionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, key])
+  @@unique([planId, position])
+  @@map("execution_tasks")
+}
+
+model WorkflowCheckpoint {
+  id         String   @id @default(uuid()) @db.Uuid
+  buildJobId String   @map("build_job_id") @db.Uuid
+  attempt    Int
+  step       String   @db.VarChar(64)
+  /// Minimal state needed to resume from this step
+  state      Json
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  buildJob BuildJob @relation(fields: [buildJobId], references: [id], onDelete: Cascade)
+
+  @@unique([buildJobId, attempt, step])
+  @@map("workflow_checkpoints")
+}
+
+model ProjectArtifact {
+  id          String    @id @default(uuid()) @db.Uuid
+  projectId   String    @map("project_id") @db.Uuid
+  buildJobId  String    @map("build_job_id") @db.Uuid
+  attempt     Int
+  /// Path relative to the build workspace root (never absolute)
+  path        String    @db.VarChar(512)
+  /// Opaque key understood by the configured ArtifactStore
+  storageKey  String    @map("storage_key") @db.VarChar(1024)
+  sizeBytes   Int       @map("size_bytes")
+  sha256      String    @db.Char(64)
+  contentType String    @map("content_type") @db.VarChar(128)
+  /// True when produced by a mock agent/sandbox
+  isMock      Boolean   @map("is_mock")
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  buildJob BuildJob @relation(fields: [buildJobId], references: [id], onDelete: Cascade)
+
+  @@unique([buildJobId, attempt, path])
+  @@index([projectId])
+  @@index([expiresAt])
+  @@map("project_artifacts")
+}
+
+model LlmUsageRecord {
+  id           String   @id @default(uuid()) @db.Uuid
+  buildJobId   String?  @map("build_job_id") @db.Uuid
+  provider     String   @db.VarChar(32)
+  model        String   @db.VarChar(128)
+  inputTokens  Int      @map("input_tokens")
+  outputTokens Int      @map("output_tokens")
+  costUsd      Decimal? @map("cost_usd") @db.Decimal(12, 6)
+  latencyMs    Int      @map("latency_ms")
+  success      Boolean
+  errorCode    String?  @map("error_code") @db.VarChar(64)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  buildJob BuildJob? @relation(fields: [buildJobId], references: [id], onDelete: SetNull)
+
+  @@index([buildJobId])
+  @@index([createdAt])
+  @@map("llm_usage_records")
+}
+
+/// Transactional outbox: written in the same transaction as the business
+/// change, then published to BullMQ by the API dispatcher.
+model OutboxMessage {
+  id            String       @id @default(uuid()) @db.Uuid
+  aggregateType String       @map("aggregate_type") @db.VarChar(64)
+  aggregateId   String       @map("aggregate_id") @db.Uuid
+  eventType     String       @map("event_type") @db.VarChar(64)
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  lastError     String?      @map("last_error")
+  availableAt   DateTime     @default(now()) @map("available_at") @db.Timestamptz(3)
+  publishedAt   DateTime?    @map("published_at") @db.Timestamptz(3)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([status, availableAt])
+  @@index([aggregateId])
+  @@map("outbox_messages")
+}
