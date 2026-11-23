@@ -25,7 +25,8 @@
     "format:check": "prettier --check .",
     "typecheck": "pnpm build:packages && pnpm -r typecheck",
     "test": "pnpm build:packages && pnpm -r test",
-    "test:integration": "pnpm build:packages && pnpm -r test:integration"
+    "test:integration": "pnpm build:packages && pnpm -r test:integration",
+    "test:e2e": "pnpm build && pnpm --filter @aab/web test:e2e"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",

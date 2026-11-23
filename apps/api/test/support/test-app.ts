@@ -26,6 +26,9 @@ export async function createTestApp(
   const env = parseEnv(apiEnvSchema, {
     ...process.env,
     LOG_LEVEL: 'fatal',
+    // Never call a real (paid) LLM from tests, whatever .env says; tests that need a
+    // provider override this with a local fake gateway.
+    LLM_PROVIDER: 'mock',
     QUEUE_PREFIX: `aab-test-${randomUUID().slice(0, 8)}`,
     OUTBOX_POLL_INTERVAL_MS: '100',
     ...overrides,

@@ -2,7 +2,6 @@ import { loadWorkspaceDotenv } from '@aab/shared-config';
 import type { NextConfig } from 'next';
 
 loadWorkspaceDotenv();
-const apiInternalUrl = process.env.API_INTERNAL_URL ?? 'http://localhost:4000';
 const isProduction = process.env.NODE_ENV === 'production';
 
 // Next.js injects inline bootstrap scripts; dev mode additionally needs eval for fast refresh.
@@ -35,11 +34,8 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },
-  // Same-origin proxy: the browser only talks to the web origin, so the
-  // httpOnly session cookie works for fetch and EventSource (SSE) alike.
-  async rewrites() {
-    return [{ source: '/api/v1/:path*', destination: `${apiInternalUrl}/api/v1/:path*` }];
-  },
+  // The same-origin /api/v1 proxy lives in src/app/api/v1/[...path]/route.ts so
+  // API_INTERNAL_URL is read at runtime (rewrites would be frozen at build time).
 };
 
 export default nextConfig;
