@@ -32,7 +32,10 @@ const queueName = 'build-jobs';
 const queuePrefix = `aab-test-${randomUUID().slice(0, 8)}`;
 const users: string[] = [];
 
-async function seedBuild(specification: object = spec): Promise<{ id: string; projectId: string }> {
+async function seedBuild(
+  specification: object = spec,
+  options: object = {},
+): Promise<{ id: string; projectId: string }> {
   const user = await prisma.user.create({
     data: { email: `worker-${randomUUID()}@test.local`, passwordHash: 'x' },
   });
@@ -56,9 +59,18 @@ async function seedBuild(specification: object = spec): Promise<{ id: string; pr
       requestedById: user.id,
       maxAttempts: 3,
       status: 'QUEUED',
+      options,
     },
   });
   return { id: build.id, projectId: project.id };
+}
+
+async function statusTrail(buildJobId: string): Promise<(string | null)[]> {
+  const rows = await prisma.buildJobEvent.findMany({
+    where: { buildJobId, type: 'STATUS_CHANGED' },
+    orderBy: { sequence: 'asc' },
+  });
+  return rows.map((e) => e.toStatus);
 }
 
 async function enqueue(build: { id: string; projectId: string }): Promise<Job> {
@@ -98,6 +110,7 @@ beforeAll(async () => {
       BUILD_TIMEOUT_SECONDS: 30,
       WORKER_CONCURRENCY: 2,
       QUEUE_PREFIX: queuePrefix,
+      MAX_REPAIR_ATTEMPTS: 2,
     },
     prisma,
     connection: connection.duplicate(),
@@ -226,6 +239,71 @@ describe('build worker (integration: BullMQ + PostgreSQL)', () => {
     );
   });
 
+  it('repairs once and completes when validation fails only the first time', async () => {
+    const build = await seedBuild(spec, { simulateFailure: 'validation-once' });
+    await settle(await enqueue(build));
+    const row = await prisma.buildJob.findUniqueOrThrow({ where: { id: build.id } });
+    expect(row).toMatchObject({ status: 'COMPLETED', repairAttempts: 1 });
+    expect(await statusTrail(build.id)).toEqual([
+      'PLANNING',
+      'GENERATING',
+      'TESTING',
+      'REPAIRING',
+      'TESTING',
+      'COMPLETED',
+    ]);
+  });
+
+  it('fails after MAX_REPAIR_ATTEMPTS bounded repair rounds', async () => {
+    const build = await seedBuild(spec, { simulateFailure: 'validation-always' });
+    const job = await enqueue(build);
+    await settle(job);
+    const row = await prisma.buildJob.findUniqueOrThrow({ where: { id: build.id } });
+    expect(row).toMatchObject({ status: 'FAILED', repairAttempts: 2, errorCode: 'BUILD_FAILURE' });
+    expect(await statusTrail(build.id)).toEqual([
+      'PLANNING',
+      'GENERATING',
+      'TESTING',
+      'REPAIRING',
+      'TESTING',
+      'REPAIRING',
+      'TESTING',
+      'FAILED',
+    ]);
+    expect((await queue.getJob(job.id!))?.attemptsMade).toBe(1);
+  });
+
+  it('resumes a build redelivered mid-REPAIRING without skipping a repair round', async () => {
+    const build = await seedBuild(spec, { simulateFailure: 'validation-always' });
+    // Crash state: TESTING → REPAIRING (round 1) was committed atomically with repairAttempts=1.
+    await prisma.buildJob.update({
+      where: { id: build.id },
+      data: { status: 'REPAIRING', repairAttempts: 1 },
+    });
+    await settle(await enqueue(build));
+    const row = await prisma.buildJob.findUniqueOrThrow({ where: { id: build.id } });
+    expect(row).toMatchObject({ status: 'FAILED', repairAttempts: 2 });
+    // Round 1 resumed, round 2 performed, then the limit (2) is reached.
+    expect(await statusTrail(build.id)).toEqual(['TESTING', 'REPAIRING', 'TESTING', 'FAILED']);
+    expect(
+      await prisma.workflowCheckpoint.count({
+        where: { buildJobId: build.id, step: { startsWith: 'REPAIRING-' } },
+      }),
+    ).toBe(2);
+  });
+
+  it('honours a cancellation requested before pickup', async () => {
+    const build = await seedBuild();
+    await prisma.buildJob.update({
+      where: { id: build.id },
+      data: { cancelRequestedAt: new Date() },
+    });
+    await settle(await enqueue(build));
+    const row = await prisma.buildJob.findUniqueOrThrow({ where: { id: build.id } });
+    expect(row.status).toBe('CANCELLED');
+    expect(await prisma.executionPlan.count({ where: { buildJobId: build.id } })).toBe(0);
+  });
+
   it('marks the build FAILED (non-retryable) when the stored specification is invalid', async () => {
     const build = await seedBuild({ not: 'a spec' });
     const job = await enqueue(build);
@@ -236,5 +314,73 @@ describe('build worker (integration: BullMQ + PostgreSQL)', () => {
     expect(row.errorCode).toBe('VALIDATION_ERROR');
     // Non-retryable: BullMQ must not have retried it.
     expect((await queue.getJob(job.id!))?.attemptsMade).toBe(1);
+  });
+});
+
+describe('cooperative cancellation (integration: slow mock steps)', () => {
+  it('aborts an in-flight step and persists CANCELLED', async () => {
+    const slowPrefix = `aab-test-slow-${randomUUID().slice(0, 8)}`;
+    const slowQueue = new Queue(queueName, { connection, prefix: slowPrefix });
+    const slowEvents = new QueueEvents(queueName, {
+      connection: connection.duplicate(),
+      prefix: slowPrefix,
+    });
+    await slowEvents.waitUntilReady();
+    const slowWorker = createBuildWorker({
+      env: {
+        AGENT_RUNTIME: 'mock',
+        SANDBOX_PROVIDER: 'mock',
+        ARTIFACT_STORAGE_PATH: storage,
+        MOCK_STEP_DELAY_MS: 3000,
+        BUILD_TIMEOUT_SECONDS: 30,
+        WORKER_CONCURRENCY: 1,
+        QUEUE_PREFIX: slowPrefix,
+        MAX_REPAIR_ATTEMPTS: 2,
+      },
+      prisma,
+      connection: connection.duplicate(),
+      logger: createLogger({ name: 'worker-it-slow', level: 'fatal' }),
+      workerId: 'it-worker-slow',
+      queueName,
+    });
+    try {
+      await slowWorker.waitUntilReady();
+      const build = await seedBuild();
+      const job = await slowQueue.add(
+        BUILD_JOB_NAME,
+        {
+          schemaVersion: 1,
+          buildJobId: build.id,
+          projectId: build.projectId,
+          attempt: 1,
+          correlationId: 'cancel-test',
+          enqueuedAt: new Date().toISOString(),
+        },
+        { jobId: buildQueueJobId(build.id, 1) },
+      );
+      // Wait until the worker is inside PLANNING (a 3s mock step), then request cancel.
+      for (let i = 0; i < 50; i++) {
+        const row = await prisma.buildJob.findUniqueOrThrow({ where: { id: build.id } });
+        if (row.status === 'PLANNING') break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      const requestedAt = Date.now();
+      await prisma.buildJob.update({
+        where: { id: build.id },
+        data: { cancelRequestedAt: new Date() },
+      });
+      await job.waitUntilFinished(slowEvents, 15_000);
+
+      const row = await prisma.buildJob.findUniqueOrThrow({ where: { id: build.id } });
+      expect(row.status).toBe('CANCELLED');
+      // Aborted mid-step (well before the 3s step would have finished on its own).
+      expect(Date.now() - requestedAt).toBeLessThan(2500);
+      expect(await prisma.executionPlan.count({ where: { buildJobId: build.id } })).toBe(0);
+    } finally {
+      await slowWorker.close();
+      await slowEvents.close();
+      await slowQueue.obliterate({ force: true });
+      await slowQueue.close();
+    }
   });
 });

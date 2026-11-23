@@ -1,4 +1,5 @@
 import type { AppSpecification } from './app-specification';
+import type { BuildOptions } from './build-options';
 
 /**
  * Execution-plane contracts. A single AgentRuntime implements the three agent
@@ -21,6 +22,9 @@ export interface AgentContext {
   projectId: string;
   attempt: number;
   specification: AppSpecification;
+  options: BuildOptions;
+  /** Number of repair rounds already performed in this attempt. */
+  repairRound: number;
   /** Aborted when the build is cancelled or times out. */
   signal: AbortSignal;
 }
@@ -62,7 +66,17 @@ export interface ValidationAgent {
   ): Promise<ValidationReport>;
 }
 
-export interface AgentRuntime extends PlanningAgent, CodingAgent, ValidationAgent {
+export interface RepairAgent {
+  /** Attempt to fix the issues in a failed validation report. */
+  repair(
+    context: AgentContext,
+    plan: ExecutionPlanDraft,
+    report: ValidationReport,
+    workspace: SandboxWorkspace,
+  ): Promise<GeneratedFile[]>;
+}
+
+export interface AgentRuntime extends PlanningAgent, CodingAgent, ValidationAgent, RepairAgent {
   readonly name: string;
   /** True for deterministic mock runtimes; surfaced on every persisted result. */
   readonly isMock: boolean;

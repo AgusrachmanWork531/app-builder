@@ -13,6 +13,7 @@ import {
 } from '@/components/ui';
 import { errorMessage, useApi } from '@/hooks/use-api';
 import { api } from '@/services/api-client';
+import type { SimulateFailure } from '@/types/api';
 
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
@@ -22,12 +23,13 @@ export default function ProjectPage() {
   const builds = useApi(() => api.listBuilds(id), [id]);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string>();
+  const [simulateFailure, setSimulateFailure] = useState<SimulateFailure>('none');
 
   async function startBuild() {
     setStarting(true);
     setStartError(undefined);
     try {
-      const build = await api.createBuild(id, crypto.randomUUID());
+      const build = await api.createBuild(id, crypto.randomUUID(), simulateFailure);
       router.push(`/builds/${build.id}`);
     } catch (e) {
       setStartError(errorMessage(e));
@@ -56,9 +58,23 @@ export default function ProjectPage() {
             <Link href={`/builds/${currentBuild.id}`}>view</Link>
           </p>
         )}
-        <button type="button" onClick={() => void startBuild()} disabled={starting || !latest}>
-          {starting ? 'Starting…' : 'Start mock build'}
-        </button>
+        <div className="actions">
+          <label htmlFor="simulate" className="small">
+            Mock scenario
+          </label>
+          <select
+            id="simulate"
+            value={simulateFailure}
+            onChange={(e) => setSimulateFailure(e.target.value as SimulateFailure)}
+          >
+            <option value="none">Succeeds</option>
+            <option value="validation-once">Fails once, repaired</option>
+            <option value="validation-always">Fails after max repairs</option>
+          </select>
+          <button type="button" onClick={() => void startBuild()} disabled={starting || !latest}>
+            {starting ? 'Starting…' : 'Start mock build'}
+          </button>
+        </div>
         {!latest && !requirements.loading && (
           <p className="muted small">Submit a requirement before starting a build.</p>
         )}

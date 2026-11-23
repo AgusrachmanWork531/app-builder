@@ -139,7 +139,27 @@ export class MockAgentRuntime implements AgentRuntime {
       );
       if (!parsed.success) issues.push({ path: 'app-spec.json', message: 'invalid specification' });
     }
+
+    // Controlled simulated failure (mock mode only) to exercise the repair loop.
+    const { simulateFailure } = context.options;
+    if (
+      simulateFailure === 'validation-always' ||
+      (simulateFailure === 'validation-once' && context.repairRound === 0)
+    ) {
+      issues.push({ message: `[MOCK] simulated validation failure (${simulateFailure})` });
+    }
     return { passed: issues.length === 0, checks: expected.length + 1, issues };
+  }
+
+  /** Deterministic "repair": regenerate the expected files. */
+  async repair(
+    context: AgentContext,
+    plan: ExecutionPlanDraft,
+    _report: ValidationReport,
+    workspace: SandboxWorkspace,
+  ): Promise<GeneratedFile[]> {
+    await abortableDelay(this.stepDelayMs, context.signal);
+    return this.generate(context, plan, workspace);
   }
 }
 

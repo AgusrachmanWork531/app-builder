@@ -87,6 +87,30 @@ export class BuildsController {
     return this.builds.get(user.id, buildId);
   }
 
+  @Post('builds/:buildId/cancel')
+  @HttpCode(202)
+  @ApiOperation({
+    summary:
+      'Cancel a build (immediate before execution; coordinated with the worker while running)',
+  })
+  cancel(
+    @CurrentUser() user: AuthUser,
+    @Param('buildId', ParseUUIDPipe) buildId: string,
+  ): Promise<{ build: BuildDto; cancellation: 'completed' | 'requested' }> {
+    return this.builds.cancel(user.id, buildId);
+  }
+
+  @Post('builds/:buildId/retry')
+  @HttpCode(202)
+  @ApiOperation({ summary: 'Retry a FAILED or CANCELLED build as a new attempt' })
+  retry(
+    @CurrentUser() user: AuthUser,
+    @Param('buildId', ParseUUIDPipe) buildId: string,
+    @Req() req: AppRequest,
+  ): Promise<BuildDto> {
+    return this.builds.retry(user.id, buildId, requestIdOf(req));
+  }
+
   @Get('builds/:buildId/events')
   @ApiOperation({ summary: 'Build event history ordered by sequence' })
   events(

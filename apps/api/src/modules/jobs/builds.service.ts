@@ -1,9 +1,11 @@
+import { CANCELLABLE_STATUSES, RETRYABLE_STATUSES, buildOptionsSchema } from '@aab/agent-core';
 import {
   type BuildJob,
   type BuildJobEvent,
   Prisma,
   appendEventLocked,
   lockBuild,
+  transitionLocked,
 } from '@aab/database';
 import { type BuildJobPayload } from '@aab/job-contracts';
 import type { ApiEnv } from '@aab/shared-config';
@@ -20,8 +22,9 @@ export const createBuildSchema = z
   .object({
     /** Defaults to the project's latest requirement revision. */
     requirementId: z.uuid().optional(),
+    options: buildOptionsSchema,
   })
-  .default({}); // body is optional
+  .default({ options: { simulateFailure: 'none' } }); // body is optional
 export type CreateBuildInput = z.infer<typeof createBuildSchema>;
 
 export const idempotencyKeySchema = z
@@ -35,6 +38,35 @@ export const eventsQuerySchema = z.object({
 });
 export type EventsQuery = z.infer<typeof eventsQuerySchema>;
 
+/** Running states where cancellation must be coordinated with the worker. */
+const ACTIVE_FOR_CANCEL = new Set(['PLANNING', 'GENERATING', 'TESTING', 'REPAIRING']);
+
+/** Outbox row for one build attempt, written in the caller's transaction. */
+async function writeOutbox(
+  tx: Prisma.TransactionClient,
+  buildJobId: string,
+  projectId: string,
+  attempt: number,
+  correlationId: string,
+): Promise<void> {
+  const payload: BuildJobPayload = {
+    schemaVersion: 1,
+    buildJobId,
+    projectId,
+    attempt,
+    correlationId,
+    enqueuedAt: new Date().toISOString(),
+  };
+  await tx.outboxMessage.create({
+    data: {
+      aggregateType: 'build_job',
+      aggregateId: buildJobId,
+      eventType: BUILD_REQUESTED_EVENT,
+      payload,
+    },
+  });
+}
+
 export interface BuildDto {
   id: string;
   projectId: string;
@@ -43,6 +75,9 @@ export interface BuildDto {
   attempt: number;
   maxAttempts: number;
   currentStep: string | null;
+  repairAttempts: number;
+  cancelRequested: boolean;
+  options: unknown;
   error: { code: string; message: string | null } | null;
   createdAt: Date;
   updatedAt: Date;
@@ -86,12 +121,42 @@ export function toBuildDto(build: BuildJob): BuildDto {
     attempt: build.attempt,
     maxAttempts: build.maxAttempts,
     currentStep: build.currentStep,
+    repairAttempts: build.repairAttempts,
+    cancelRequested: build.cancelRequestedAt !== null,
+    options: build.options,
     error: build.errorCode ? { code: build.errorCode, message: build.errorMessage } : null,
     createdAt: build.createdAt,
     updatedAt: build.updatedAt,
     startedAt: build.startedAt,
     completedAt: build.completedAt,
   };
+}
+
+/**
+ * Event metadata keys that may be shown to users (REST + SSE). Anything else a
+ * future writer adds (stack traces, host paths, provider payloads) is dropped.
+ */
+const PUBLIC_METADATA_KEYS = new Set([
+  'requirementId',
+  'simulateFailure',
+  'tasks',
+  'isMock',
+  'paths',
+  'passed',
+  'checks',
+  'round',
+  'issues',
+  'errorCode',
+  'artifacts',
+  'repairRounds',
+  'queueAttempt',
+]);
+
+export function publicMetadata(metadata: unknown): Record<string, unknown> {
+  if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) return {};
+  return Object.fromEntries(
+    Object.entries(metadata).filter(([key]) => PUBLIC_METADATA_KEYS.has(key)),
+  );
 }
 
 export function toEventDto(event: BuildJobEvent): BuildEventDto {
@@ -103,7 +168,7 @@ export function toEventDto(event: BuildJobEvent): BuildEventDto {
     attempt: event.attempt,
     step: event.step,
     message: event.message,
-    metadata: event.metadata,
+    metadata: publicMetadata(event.metadata),
     createdAt: event.createdAt,
   };
 }
@@ -129,6 +194,11 @@ export class BuildsService {
     correlationId: string,
   ): Promise<{ build: BuildDto; created: boolean }> {
     await this.access.getWritableProject(userId, projectId);
+    // Failure simulation exists to exercise the mock repair loop; never let it
+    // drive real (costly) agent/sandbox work in production.
+    if (this.env.NODE_ENV === 'production' && input.options.simulateFailure !== 'none') {
+      throw new ValidationError('options.simulateFailure is only available outside production');
+    }
 
     if (idempotencyKey) {
       const existing = await this.findByIdempotencyKey(userId, idempotencyKey, projectId);
@@ -157,6 +227,7 @@ export class BuildsService {
             requestedById: userId,
             maxAttempts: this.env.MAX_BUILD_ATTEMPTS,
             idempotencyKey: idempotencyKey ?? null,
+            options: input.options,
           },
         });
         await lockBuild(tx, created.id);
@@ -166,24 +237,9 @@ export class BuildsService {
           type: 'STATUS_CHANGED',
           toStatus: 'PENDING',
           message: 'Build requested',
-          metadata: { requirementId: requirement.id },
+          metadata: { requirementId: requirement.id, ...input.options },
         });
-        const payload: BuildJobPayload = {
-          schemaVersion: 1,
-          buildJobId: created.id,
-          projectId,
-          attempt: created.attempt,
-          correlationId,
-          enqueuedAt: new Date().toISOString(),
-        };
-        await tx.outboxMessage.create({
-          data: {
-            aggregateType: 'build_job',
-            aggregateId: created.id,
-            eventType: BUILD_REQUESTED_EVENT,
-            payload,
-          },
-        });
+        await writeOutbox(tx, created.id, projectId, created.attempt, correlationId);
         return created;
       });
       return { build: toBuildDto(build), created: true };
@@ -260,6 +316,82 @@ export class BuildsService {
       take: query.limit,
     });
     return events.map(toEventDto);
+  }
+
+  /**
+   * Cancel a build. Not-yet-running builds are cancelled immediately; running
+   * builds get cancel_requested_at and the worker stops at its next control
+   * poll, persisting CANCELLED (cooperative, so the sandbox is shut down safely).
+   */
+  async cancel(
+    userId: string,
+    buildJobId: string,
+  ): Promise<{ build: BuildDto; cancellation: 'completed' | 'requested' }> {
+    await this.access.assertBuildAccess(userId, buildJobId);
+    const cancellation = await this.prisma.client.$transaction(async (tx) => {
+      const locked = await lockBuild(tx, buildJobId);
+      if (!CANCELLABLE_STATUSES.has(locked.status)) {
+        throw new ConflictError(`Build is already ${locked.status}`);
+      }
+      await tx.buildJob.update({
+        where: { id: buildJobId },
+        data: { cancelRequestedAt: new Date() },
+      });
+      if (ACTIVE_FOR_CANCEL.has(locked.status)) {
+        await appendEventLocked(tx, {
+          buildJobId,
+          attempt: locked.attempt,
+          type: 'CANCEL_REQUESTED',
+          message: 'Cancellation requested; waiting for the worker to stop',
+          dedupeKey: `a${locked.attempt}:cancel-requested`,
+        });
+        return 'requested' as const;
+      }
+      await transitionLocked(tx, {
+        buildJobId,
+        to: 'CANCELLED',
+        attempt: locked.attempt,
+        message: 'Build cancelled before execution',
+        dedupeKey: `a${locked.attempt}:CANCELLED`,
+      });
+      return 'completed' as const;
+    });
+    const build = await this.prisma.client.buildJob.findUniqueOrThrow({
+      where: { id: buildJobId },
+    });
+    return { build: toBuildDto(build), cancellation };
+  }
+
+  /** Start a new attempt of a FAILED or CANCELLED build (bounded by maxAttempts). */
+  async retry(userId: string, buildJobId: string, correlationId: string): Promise<BuildDto> {
+    const { projectId } = await this.access.assertBuildAccess(userId, buildJobId);
+    await this.access.getWritableProject(userId, projectId);
+    await this.prisma.client.$transaction(async (tx) => {
+      const locked = await lockBuild(tx, buildJobId);
+      if (!RETRYABLE_STATUSES.has(locked.status)) {
+        throw new ConflictError(
+          `Only FAILED or CANCELLED builds can be retried (is ${locked.status})`,
+        );
+      }
+      const { maxAttempts } = await tx.buildJob.findUniqueOrThrow({
+        where: { id: buildJobId },
+        select: { maxAttempts: true },
+      });
+      if (locked.attempt >= maxAttempts) {
+        throw new ConflictError(`Maximum attempts (${maxAttempts}) reached for this build`);
+      }
+      const result = await transitionLocked(tx, {
+        buildJobId,
+        to: 'PENDING',
+        message: `Retry requested (attempt ${locked.attempt + 1})`,
+      });
+      if (!result.applied) throw new ConflictError('Build changed concurrently; try again');
+      await writeOutbox(tx, buildJobId, projectId, result.attempt, correlationId);
+    });
+    const build = await this.prisma.client.buildJob.findUniqueOrThrow({
+      where: { id: buildJobId },
+    });
+    return toBuildDto(build);
   }
 
   private async findByIdempotencyKey(

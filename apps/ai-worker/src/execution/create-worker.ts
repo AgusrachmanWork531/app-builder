@@ -18,6 +18,7 @@ export interface CreateBuildWorkerOptions {
     | 'BUILD_TIMEOUT_SECONDS'
     | 'WORKER_CONCURRENCY'
     | 'QUEUE_PREFIX'
+    | 'MAX_REPAIR_ATTEMPTS'
   >;
   prisma: PrismaClient;
   connection: Redis;
@@ -41,6 +42,7 @@ export function createBuildWorker(options: CreateBuildWorkerOptions): Worker {
     logger,
     workerId: options.workerId,
     buildTimeoutSeconds: env.BUILD_TIMEOUT_SECONDS,
+    maxRepairAttempts: env.MAX_REPAIR_ATTEMPTS,
   });
   return new Worker(options.queueName, createBuildJobProcessor({ prisma, workflow, logger }), {
     connection: options.connection,

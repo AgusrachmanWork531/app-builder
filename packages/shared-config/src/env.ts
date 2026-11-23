@@ -73,6 +73,9 @@ export const apiEnvSchema = z
     JWT_SECRET: z.string().min(32, 'must be at least 32 characters'),
     JWT_EXPIRES_IN_SECONDS: positiveInt(3600),
     OUTBOX_POLL_INTERVAL_MS: positiveInt(1000),
+    /** Active builds without a worker heartbeat for this long are reconciled. */
+    STALE_BUILD_SECONDS: positiveInt(120),
+    RECONCILE_INTERVAL_MS: positiveInt(30_000),
     /** Defaults to true outside development/test. */
     COOKIE_SECURE: booleanFlag.optional(),
     /** Swagger UI; defaults to enabled only in development/test. */

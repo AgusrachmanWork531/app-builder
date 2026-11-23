@@ -2,6 +2,9 @@ import type { BuildStatus } from '@aab/shared-types';
 
 export type { BuildStatus };
 
+/** Mock-mode switch to exercise the repair loop. */
+export type SimulateFailure = 'none' | 'validation-once' | 'validation-always';
+
 export interface User {
   id: string;
   email: string;
@@ -47,6 +50,9 @@ export interface Build {
   attempt: number;
   maxAttempts: number;
   currentStep: string | null;
+  repairAttempts: number;
+  cancelRequested: boolean;
+  options: { simulateFailure?: SimulateFailure };
   error: { code: string; message: string | null } | null;
   createdAt: string;
   updatedAt: string;

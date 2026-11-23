@@ -33,8 +33,20 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function context(signal = new AbortController().signal): AgentContext {
-  return { buildJobId: 'b', projectId: 'p', attempt: 1, specification: sampleSpec, signal };
+function context(
+  signal = new AbortController().signal,
+  simulateFailure: AgentContext['options']['simulateFailure'] = 'none',
+  repairRound = 0,
+): AgentContext {
+  return {
+    buildJobId: 'b',
+    projectId: 'p',
+    attempt: 1,
+    specification: sampleSpec,
+    options: { simulateFailure },
+    repairRound,
+    signal,
+  };
 }
 
 describe('MockAgentRuntime', () => {
@@ -62,6 +74,22 @@ describe('MockAgentRuntime', () => {
     const report = await runtime.validate(context(), await runtime.plan(context()), ws);
     expect(report.passed).toBe(false);
     expect(report.issues.length).toBeGreaterThan(0);
+  });
+
+  it('simulates validation failures for the repair loop (mock only)', async () => {
+    const runtime = new MockAgentRuntime(0);
+    const ws = await new MockSandboxProvider(root).createWorkspace('sim');
+    const plan = await runtime.plan(context());
+    await runtime.generate(context(), plan, ws);
+    const signal = new AbortController().signal;
+
+    const once0 = await runtime.validate(context(signal, 'validation-once', 0), plan, ws);
+    const once1 = await runtime.validate(context(signal, 'validation-once', 1), plan, ws);
+    const always3 = await runtime.validate(context(signal, 'validation-always', 3), plan, ws);
+    expect(once0.passed).toBe(false);
+    expect(once0.issues[0]?.message).toMatch(/\[MOCK\] simulated/);
+    expect(once1.passed).toBe(true);
+    expect(always3.passed).toBe(false);
   });
 
   it('stops when the build is cancelled', async () => {

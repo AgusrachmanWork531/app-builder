@@ -6,6 +6,7 @@ import type {
   PaginationMeta,
   Project,
   Requirement,
+  SimulateFailure,
   User,
 } from '@/types/api';
 
@@ -81,13 +82,20 @@ export const api = {
     data<Requirement>(`/projects/${projectId}/requirements`, { method: 'POST', body: { prompt } }),
 
   listBuilds: (projectId: string) => request<Build[]>(`/projects/${projectId}/builds?pageSize=50`),
-  createBuild: (projectId: string, idempotencyKey: string) =>
+  createBuild: (projectId: string, idempotencyKey: string, simulateFailure: SimulateFailure) =>
     data<Build>(`/projects/${projectId}/builds`, {
       method: 'POST',
-      body: {},
+      body: { options: { simulateFailure } },
       headers: { 'Idempotency-Key': idempotencyKey },
     }),
+  cancelBuild: (id: string) =>
+    data<{ build: Build; cancellation: 'completed' | 'requested' }>(`/builds/${id}/cancel`, {
+      method: 'POST',
+    }),
+  retryBuild: (id: string) => data<Build>(`/builds/${id}/retry`, { method: 'POST' }),
   getBuild: (id: string) => data<BuildDetail>(`/builds/${id}`),
+  /** Same-origin SSE URL (the session cookie authorizes it). */
+  buildStreamUrl: (id: string) => `/api/v1/builds/${id}/stream`,
   getBuildEvents: (id: string, afterSequence = 0) =>
     data<BuildEvent[]>(`/builds/${id}/events?afterSequence=${afterSequence}`),
 };
