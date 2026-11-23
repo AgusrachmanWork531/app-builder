@@ -111,6 +111,7 @@ beforeAll(async () => {
       WORKER_CONCURRENCY: 2,
       QUEUE_PREFIX: queuePrefix,
       MAX_REPAIR_ATTEMPTS: 2,
+      ARTIFACT_RETENTION_DAYS: 30,
     },
     prisma,
     connection: connection.duplicate(),
@@ -161,6 +162,10 @@ describe('build worker (integration: BullMQ + PostgreSQL)', () => {
     const artifacts = await prisma.projectArtifact.findMany({ where: { buildJobId: build.id } });
     expect(artifacts.length).toBe(5);
     expect(artifacts.every((a) => a.isMock)).toBe(true);
+    // Retention: artifacts expire ~30 days out (cleaned up by the API).
+    const days = (artifacts[0]!.expiresAt!.getTime() - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(29);
+    expect(days).toBeLessThanOrEqual(30);
     await access(join(storage, artifacts[0]!.storageKey));
 
     expect(await prisma.workflowCheckpoint.count({ where: { buildJobId: build.id } })).toBe(3);
@@ -336,6 +341,7 @@ describe('cooperative cancellation (integration: slow mock steps)', () => {
         WORKER_CONCURRENCY: 1,
         QUEUE_PREFIX: slowPrefix,
         MAX_REPAIR_ATTEMPTS: 2,
+        ARTIFACT_RETENTION_DAYS: 30,
       },
       prisma,
       connection: connection.duplicate(),

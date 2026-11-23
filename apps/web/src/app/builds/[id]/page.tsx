@@ -25,6 +25,7 @@ export default function BuildPage() {
   const stream = useBuildStream(id);
   const [acting, setActing] = useState(false);
   const [actionError, setActionError] = useState<string>();
+  const [exported, setExported] = useState<string>();
 
   async function act(action: () => Promise<unknown>) {
     setActing(true);
@@ -125,14 +126,39 @@ export default function BuildPage() {
           <h2>Artifacts</h2>
           <ul className="list" aria-label="Artifacts">
             {b.artifacts.map((a) => (
-              <li key={a.path}>
-                <code>{a.path}</code>{' '}
+              <li key={a.id}>
+                <a href={api.artifactDownloadUrl(b.id, a.id)} download>
+                  <code>{a.path}</code>
+                </a>{' '}
                 <span className="muted small">
                   {a.sizeBytes} B · {a.isMock ? 'MOCK' : 'generated'}
+                  {a.expiresAt && ` · expires ${formatDate(a.expiresAt)}`}
                 </span>
               </li>
             ))}
           </ul>
+          {b.status === 'COMPLETED' && (
+            <div className="actions">
+              <button
+                type="button"
+                className="secondary"
+                disabled={acting}
+                onClick={() =>
+                  void act(async () => {
+                    const result = await api.exportBuildToGit(b.id);
+                    setExported(`${result.repository} @ ${result.commitSha.slice(0, 10)}`);
+                  })
+                }
+              >
+                Export to git (local)
+              </button>
+              {exported && (
+                <span className="small" role="status">
+                  Committed to {exported}
+                </span>
+              )}
+            </div>
+          )}
         </section>
       )}
 

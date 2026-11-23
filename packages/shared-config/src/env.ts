@@ -13,13 +13,34 @@ const optionalSecret = z
   .optional()
   .transform((v) => (v && v.trim().length > 0 ? v : undefined));
 
+const optionalUrl = z
+  .string()
+  .optional()
+  .transform((v) => (v && v.trim().length > 0 ? v.trim() : undefined))
+  .pipe(z.url({ protocol: /^https?$/ }).optional());
+
 const llmFields = {
-  LLM_PROVIDER: z.enum(['mock', 'openai', 'anthropic']).default('mock'),
-  LLM_MODEL: z.string().optional(),
+  /** mock needs no credentials; midas is an OpenAI-compatible gateway. */
+  LLM_PROVIDER: z.enum(['mock', 'openai', 'anthropic', 'midas']).default('mock'),
+  /** Defaults per provider (see DEFAULT_LLM_MODELS) when empty. */
+  LLM_MODEL: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim().length > 0 ? v.trim() : undefined)),
   LLM_TIMEOUT_MS: positiveInt(60_000),
   OPENAI_API_KEY: optionalSecret,
   ANTHROPIC_API_KEY: optionalSecret,
+  MIDAS_API_KEY: optionalSecret,
+  /** e.g. https://<gateway-host>/v1 (the adapter appends /chat/completions). */
+  MIDAS_BASE_URL: optionalUrl,
 };
+
+export const DEFAULT_LLM_MODELS = {
+  mock: 'mock-llm',
+  openai: 'gpt-4.1-mini',
+  anthropic: 'claude-sonnet-5-5',
+  midas: 'deepseek-v4',
+} as const;
 
 const baseFields = {
   NODE_ENV: nodeEnv,
@@ -41,15 +62,43 @@ const baseFields = {
     .regex(/^[A-Za-z0-9_-]{1,64}$/)
     .default('aab'),
   MAX_BUILD_ATTEMPTS: positiveInt(3),
+  /** Generated artifacts expire (and are cleaned up) after this many days. */
+  ARTIFACT_RETENTION_DAYS: positiveInt(30),
   ...llmFields,
 };
 
 /** Placeholder values that must never reach production. */
 const INSECURE_SECRET_MARKERS = ['change-me', 'changeme', 'dev-only', 'secret'];
 
-type LlmEnv = { LLM_PROVIDER: string; OPENAI_API_KEY?: string; ANTHROPIC_API_KEY?: string };
+type LlmEnv = {
+  LLM_PROVIDER: string;
+  OPENAI_API_KEY?: string;
+  ANTHROPIC_API_KEY?: string;
+  MIDAS_API_KEY?: string;
+  MIDAS_BASE_URL?: string;
+};
 
-function requireProviderKey(env: LlmEnv, ctx: z.RefinementCtx): void {
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+function requireProviderKey(env: LlmEnv & { NODE_ENV: string }, ctx: z.RefinementCtx): void {
+  // The bearer key must never travel in cleartext outside local development.
+  if (env.MIDAS_BASE_URL && env.NODE_ENV !== 'development' && env.NODE_ENV !== 'test') {
+    const url = new URL(env.MIDAS_BASE_URL);
+    if (url.protocol !== 'https:' && !LOOPBACK_HOSTS.has(url.hostname)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['MIDAS_BASE_URL'],
+        message: 'must use https outside development/test',
+      });
+    }
+  }
+  if (env.LLM_PROVIDER === 'midas') {
+    for (const key of ['MIDAS_API_KEY', 'MIDAS_BASE_URL'] as const) {
+      if (!env[key]) {
+        ctx.addIssue({ code: 'custom', path: [key], message: 'required when LLM_PROVIDER=midas' });
+      }
+    }
+  }
   if (env.LLM_PROVIDER === 'openai' && !env.OPENAI_API_KEY) {
     ctx.addIssue({
       code: 'custom',
@@ -73,6 +122,9 @@ export const apiEnvSchema = z
     JWT_SECRET: z.string().min(32, 'must be at least 32 characters'),
     JWT_EXPIRES_IN_SECONDS: positiveInt(3600),
     OUTBOX_POLL_INTERVAL_MS: positiveInt(1000),
+    /** Paid-LLM abuse guards (ignored for the mock provider). */
+    LLM_REQUESTS_PER_USER_PER_MINUTE: positiveInt(10),
+    LLM_MAX_CONCURRENCY: positiveInt(4),
     /** Active builds without a worker heartbeat for this long are reconciled. */
     STALE_BUILD_SECONDS: positiveInt(120),
     RECONCILE_INTERVAL_MS: positiveInt(30_000),

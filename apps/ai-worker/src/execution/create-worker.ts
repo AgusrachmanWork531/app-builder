@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@aab/database';
-import type { Logger } from '@aab/logger';
+import { LogMetrics, type Logger } from '@aab/logger';
 import { MockSandboxProvider } from '@aab/sandbox-adapters';
 import type { WorkerEnv } from '@aab/shared-config';
 import { Worker } from 'bullmq';
@@ -19,6 +19,7 @@ export interface CreateBuildWorkerOptions {
     | 'WORKER_CONCURRENCY'
     | 'QUEUE_PREFIX'
     | 'MAX_REPAIR_ATTEMPTS'
+    | 'ARTIFACT_RETENTION_DAYS'
   >;
   prisma: PrismaClient;
   connection: Redis;
@@ -43,10 +44,16 @@ export function createBuildWorker(options: CreateBuildWorkerOptions): Worker {
     workerId: options.workerId,
     buildTimeoutSeconds: env.BUILD_TIMEOUT_SECONDS,
     maxRepairAttempts: env.MAX_REPAIR_ATTEMPTS,
+    artifactRetentionDays: env.ARTIFACT_RETENTION_DAYS,
   });
-  return new Worker(options.queueName, createBuildJobProcessor({ prisma, workflow, logger }), {
-    connection: options.connection,
-    prefix: env.QUEUE_PREFIX,
-    concurrency: env.WORKER_CONCURRENCY,
-  });
+  const metrics = new LogMetrics(logger.child({ component: 'metrics' }));
+  return new Worker(
+    options.queueName,
+    createBuildJobProcessor({ prisma, workflow, logger, metrics }),
+    {
+      connection: options.connection,
+      prefix: env.QUEUE_PREFIX,
+      concurrency: env.WORKER_CONCURRENCY,
+    },
+  );
 }

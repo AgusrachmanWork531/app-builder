@@ -77,11 +77,13 @@ export interface BuildDetail extends Build {
     tasks: { key: string; title: string; status: string }[];
   } | null;
   artifacts: {
+    id: string;
     path: string;
     sizeBytes: number;
     sha256: string;
     contentType: string;
     isMock: boolean;
+    expiresAt: string | null;
   }[];
 }
 

@@ -1,9 +1,14 @@
 import type { AppSpecification } from '@aab/agent-core';
 
+export interface AnalysisContext {
+  projectId: string;
+  userId: string;
+}
+
 /** Converts a normalized prompt into a structured application specification. */
 export interface RequirementAnalyzer {
   readonly name: string;
-  analyze(normalizedPrompt: string): Promise<AppSpecification>;
+  analyze(normalizedPrompt: string, context: AnalysisContext): Promise<AppSpecification>;
 }
 
 export const REQUIREMENT_ANALYZER = Symbol('REQUIREMENT_ANALYZER');

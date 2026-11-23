@@ -86,3 +86,5 @@ export function createLogger(
 export function withContext(logger: Logger, context: LogContext): Logger {
   return logger.child(context);
 }
+
+export * from './metrics';

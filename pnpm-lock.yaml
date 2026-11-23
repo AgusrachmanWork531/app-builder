@@ -239,9 +239,15 @@ importers:
       '@aab/job-contracts':
         specifier: workspace:*
         version: link:../../packages/job-contracts
+      '@aab/llm-adapters':
+        specifier: workspace:*
+        version: link:../../packages/llm-adapters
       '@aab/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      '@aab/sandbox-adapters':
+        specifier: workspace:*
+        version: link:../../packages/sandbox-adapters
       '@aab/shared-config':
         specifier: workspace:*
         version: link:../../packages/shared-config
@@ -389,6 +395,15 @@ importers:
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+
+  packages/llm-adapters:
+    dependencies:
+      '@aab/shared-config':
+        specifier: workspace:*
+        version: link:../shared-config
+      '@aab/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
 
   packages/logger:
     dependencies:

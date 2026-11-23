@@ -92,11 +92,13 @@ export interface BuildDetailDto extends BuildDto {
     tasks: { key: string; title: string; status: string }[];
   } | null;
   artifacts: {
+    id: string;
     path: string;
     sizeBytes: number;
     sha256: string;
     contentType: string;
     isMock: boolean;
+    expiresAt: Date | null;
   }[];
 }
 
@@ -150,6 +152,8 @@ const PUBLIC_METADATA_KEYS = new Set([
   'artifacts',
   'repairRounds',
   'queueAttempt',
+  'repository',
+  'commitSha',
 ]);
 
 export function publicMetadata(metadata: unknown): Record<string, unknown> {
@@ -301,11 +305,13 @@ export class BuildsService {
           }
         : null,
       artifacts: artifacts.map((a) => ({
+        id: a.id,
         path: a.path,
         sizeBytes: a.sizeBytes,
         sha256: a.sha256,
         contentType: a.contentType,
         isMock: a.isMock,
+        expiresAt: a.expiresAt,
       })),
     };
   }

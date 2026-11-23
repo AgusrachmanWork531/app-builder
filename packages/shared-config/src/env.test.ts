@@ -83,6 +83,35 @@ describe('parseEnv', () => {
     expect(abs.ARTIFACT_STORAGE_PATH).toBe('/tmp/x');
   });
 
+  it('requires Midas base URL and key when LLM_PROVIDER=midas', () => {
+    expect(() => parseEnv(apiEnvSchema, { ...validApi, LLM_PROVIDER: 'midas' })).toThrow(
+      /MIDAS_API_KEY[\s\S]*MIDAS_BASE_URL|MIDAS_BASE_URL[\s\S]*MIDAS_API_KEY/,
+    );
+    const env = parseEnv(apiEnvSchema, {
+      ...validApi,
+      LLM_PROVIDER: 'midas',
+      MIDAS_API_KEY: 'k-test',
+      MIDAS_BASE_URL: 'https://gateway.example.com/v1',
+    });
+    expect(env.LLM_PROVIDER).toBe('midas');
+    expect(() => parseEnv(apiEnvSchema, { ...validApi, MIDAS_BASE_URL: 'ftp://nope' })).toThrow(
+      /MIDAS_BASE_URL/,
+    );
+  });
+
+  it('requires https for the Midas gateway outside development (loopback excepted)', () => {
+    const prod = { ...validApi, NODE_ENV: 'production', JWT_SECRET: strongSecret };
+    expect(() =>
+      parseEnv(apiEnvSchema, { ...prod, MIDAS_BASE_URL: 'http://gateway.example.com/v1' }),
+    ).toThrow(/https/);
+    expect(() =>
+      parseEnv(apiEnvSchema, { ...prod, MIDAS_BASE_URL: 'http://127.0.0.1:8080/v1' }),
+    ).not.toThrow();
+    expect(() =>
+      parseEnv(apiEnvSchema, { ...prod, MIDAS_BASE_URL: 'https://gateway.example.com/v1' }),
+    ).not.toThrow();
+  });
+
   it('rejects unknown agent runtimes for the worker', () => {
     expect(() => parseEnv(workerEnvSchema, { ...validApi, AGENT_RUNTIME: 'claude-code' })).toThrow(
       /AGENT_RUNTIME/,

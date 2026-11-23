@@ -120,6 +120,18 @@ export interface SandboxWorkspace {
   cleanup(): Promise<void>;
 }
 
+/**
+ * Read/delete access to collected artifacts by their opaque storage key.
+ * Local disk today; an object-storage implementation (S3/GCS) can replace it
+ * without changing callers because keys are relative and opaque.
+ */
+export interface ArtifactStore {
+  readonly name: string;
+  read(storageKey: string): Promise<Buffer>;
+  /** Idempotent: deleting a missing artifact is not an error. */
+  delete(storageKey: string): Promise<void>;
+}
+
 export interface SandboxProvider {
   readonly name: string;
   readonly isMock: boolean;

@@ -58,7 +58,7 @@ export class RequirementsService {
     input: CreateRequirementInput,
   ): Promise<RequirementDto> {
     await this.access.getWritableProject(userId, projectId); // fail fast before analysis
-    const specification = await this.analyzer.analyze(input.prompt);
+    const specification = await this.analyzer.analyze(input.prompt, { projectId, userId });
     // The project lock serializes revision numbering and blocks a concurrent archive.
     const row = await this.prisma.client.$transaction(async (tx) => {
       await this.access.lockWritableProject(tx, userId, projectId);

@@ -101,6 +101,13 @@ export const api = {
       method: 'POST',
     }),
   retryBuild: (id: string) => data<Build>(`/builds/${id}/retry`, { method: 'POST' }),
+  exportBuildToGit: (id: string) =>
+    data<{ repository: string; commitSha: string; files: number }>(`/builds/${id}/git-export`, {
+      method: 'POST',
+    }),
+  /** Same-origin download URL (cookie-authorized GET; served as an attachment). */
+  artifactDownloadUrl: (buildId: string, artifactId: string) =>
+    `/api/v1/builds/${buildId}/artifacts/${artifactId}/download`,
   getBuild: (id: string) => data<BuildDetail>(`/builds/${id}`),
   /** Same-origin SSE URL (the session cookie authorizes it). */
   buildStreamUrl: (id: string) => `/api/v1/builds/${id}/stream`,

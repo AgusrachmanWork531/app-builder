@@ -37,6 +37,8 @@ export interface BuildWorkflowDeps {
   workerId: string;
   buildTimeoutSeconds: number;
   maxRepairAttempts: number;
+  /** Collected artifacts expire after this many days (cleaned up by the API). */
+  artifactRetentionDays: number;
   /** How often to poll for cancellation and refresh the heartbeat. */
   controlPollMs?: number;
 }
@@ -454,8 +456,10 @@ export class BuildWorkflow {
     }
 
     const collected = await workspace.collectArtifacts();
+    const expiresAt = new Date(Date.now() + this.deps.artifactRetentionDays * 86_400_000);
     await prisma.projectArtifact.createMany({
       data: collected.map((artifact) => ({
+        expiresAt,
         projectId: context.projectId,
         buildJobId: context.buildJobId,
         attempt: context.attempt,

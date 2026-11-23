@@ -1,7 +1,7 @@
 import { CANCELLABLE_STATUSES } from '@aab/agent-core';
 import { type PrismaClient, appendEvent, transitionBuild } from '@aab/database';
 import { type BuildJobPayload, buildJobPayloadSchema } from '@aab/job-contracts';
-import { type Logger, withContext } from '@aab/logger';
+import { type Logger, type Metrics, NoopMetrics, withContext } from '@aab/logger';
 import { type AppError, ValidationError } from '@aab/shared-types';
 import { type Job, UnrecoverableError } from 'bullmq';
 import { classifyError } from '../recovery/classify-error';
@@ -11,6 +11,7 @@ export interface BuildJobProcessorDeps {
   prisma: PrismaClient;
   workflow: Pick<BuildWorkflow, 'run'>;
   logger: Logger;
+  metrics?: Metrics;
 }
 
 /** Validate an untrusted queue payload against the versioned contract. */
@@ -43,6 +44,7 @@ export function remainingQueueAttempts(job: Pick<Job, 'opts' | 'attemptsMade'>):
 }
 
 export function createBuildJobProcessor(deps: BuildJobProcessorDeps) {
+  let active = 0; // jobs currently executing in this worker process (utilization)
   return async function processBuildJob(job: Job): Promise<WorkflowOutcome> {
     let payload: BuildJobPayload;
     try {
@@ -55,9 +57,19 @@ export function createBuildJobProcessor(deps: BuildJobProcessorDeps) {
       buildId: payload.buildJobId,
       correlationId: payload.correlationId,
     });
+    const metrics = deps.metrics ?? new NoopMetrics();
+    const started = Date.now();
+    const enqueuedAt = Date.parse(payload.enqueuedAt);
+    if (job.attemptsMade === 0 && Number.isFinite(enqueuedAt)) {
+      metrics.observe('build_queue_wait_ms', Math.max(0, started - enqueuedAt));
+    }
+    active++;
+    metrics.observe('worker_active_jobs', active);
 
     try {
-      return await deps.workflow.run(payload);
+      const outcome = await deps.workflow.run(payload);
+      metrics.increment('build_job_outcome_total', 1, { outcome: outcome.outcome });
+      return outcome;
     } catch (error) {
       const appError = classifyError(error);
       const remaining = remainingQueueAttempts(job);
@@ -67,6 +79,7 @@ export function createBuildJobProcessor(deps: BuildJobProcessorDeps) {
       );
 
       if (appError.retryable && remaining > 0) {
+        metrics.increment('build_job_retry_total', 1, { errorCode: appError.code });
         await appendEvent(deps.prisma, {
           buildJobId: payload.buildJobId,
           attempt: payload.attempt,
@@ -89,7 +102,14 @@ export function createBuildJobProcessor(deps: BuildJobProcessorDeps) {
           details: appError.code === 'INTERNAL_ERROR' ? {} : safeDetails(appError.details),
         },
       });
+      metrics.increment('build_job_outcome_total', 1, {
+        outcome: 'failed',
+        errorCode: appError.code,
+      });
       throw new UnrecoverableError(`${appError.code}: ${publicMessage(appError)}`);
+    } finally {
+      active--;
+      metrics.observe('build_job_duration_ms', Date.now() - started);
     }
   };
 }
