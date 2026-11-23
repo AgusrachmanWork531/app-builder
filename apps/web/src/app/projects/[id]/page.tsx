@@ -11,6 +11,8 @@ import {
   StatusBadge,
   formatDate,
 } from '@/components/ui';
+import { ProjectSettings } from '@/features/projects/project-settings';
+import { RequirementForm } from '@/features/projects/requirement-form';
 import { errorMessage, useApi } from '@/hooks/use-api';
 import { api } from '@/services/api-client';
 import type { SimulateFailure } from '@/types/api';
@@ -42,16 +44,13 @@ export default function ProjectPage() {
     return <ErrorMessage message={project.error ?? 'Not found'} />;
   const latest = requirements.data?.[0];
   const currentBuild = builds.data?.data[0];
+  const archived = project.data.status === 'ARCHIVED';
 
   return (
     <>
       <MockNotice />
       <section className="card">
-        <h1>{project.data.name}</h1>
-        {project.data.description && <p>{project.data.description}</p>}
-        <p className="muted small">
-          Created {formatDate(project.data.createdAt)} · {project.data.status}
-        </p>
+        <ProjectSettings project={project.data} onChanged={project.reload} />
         {currentBuild && (
           <p>
             Current build: <StatusBadge status={currentBuild.status} />{' '}
@@ -71,7 +70,11 @@ export default function ProjectPage() {
             <option value="validation-once">Fails once, repaired</option>
             <option value="validation-always">Fails after max repairs</option>
           </select>
-          <button type="button" onClick={() => void startBuild()} disabled={starting || !latest}>
+          <button
+            type="button"
+            onClick={() => void startBuild()}
+            disabled={starting || !latest || archived}
+          >
             {starting ? 'Starting…' : 'Start mock build'}
           </button>
         </div>
@@ -83,6 +86,7 @@ export default function ProjectPage() {
 
       <section className="card">
         <h2>Requirements</h2>
+        <RequirementForm projectId={id} disabled={archived} onCreated={requirements.reload} />
         {requirements.loading && <Loading />}
         {requirements.error && <ErrorMessage message={requirements.error} />}
         {requirements.data?.length === 0 && <EmptyState>No requirements yet.</EmptyState>}

@@ -3,8 +3,10 @@ import type {
   Build,
   BuildDetail,
   BuildEvent,
+  Dashboard,
   PaginationMeta,
   Project,
+  ProjectListStatus,
   Requirement,
   SimulateFailure,
   User,
@@ -70,11 +72,17 @@ export const api = {
   logout: () => data<{ loggedOut: true }>('/auth/logout', { method: 'POST' }),
   me: () => data<User>('/auth/me'),
 
-  listProjects: (page = 1, pageSize = 20) =>
-    request<Project[]>(`/projects?page=${page}&pageSize=${pageSize}`),
+  dashboard: () => data<Dashboard>('/dashboard'),
+
+  listProjects: (page = 1, pageSize = 20, status: ProjectListStatus = 'active') =>
+    request<Project[]>(`/projects?page=${page}&pageSize=${pageSize}&status=${status}`),
   createProject: (name: string, description?: string) =>
     data<Project>('/projects', { method: 'POST', body: { name, description } }),
   getProject: (id: string) => data<Project>(`/projects/${id}`),
+  updateProject: (id: string, changes: { name?: string; description?: string | null }) =>
+    data<Project>(`/projects/${id}`, { method: 'PATCH', body: changes }),
+  archiveProject: (id: string) => data<Project>(`/projects/${id}/archive`, { method: 'POST' }),
+  unarchiveProject: (id: string) => data<Project>(`/projects/${id}/unarchive`, { method: 'POST' }),
 
   listRequirements: (projectId: string) =>
     data<Requirement[]>(`/projects/${projectId}/requirements`),

@@ -1,6 +1,5 @@
 import type { AppSpecification } from '@aab/agent-core';
-import { Prisma, type ProjectRequirement } from '@aab/database';
-import { ConflictError } from '@aab/shared-types';
+import type { ProjectRequirement } from '@aab/database';
 import { Inject, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { PrismaService } from '../../infrastructure/prisma.service';
@@ -58,15 +57,17 @@ export class RequirementsService {
     projectId: string,
     input: CreateRequirementInput,
   ): Promise<RequirementDto> {
-    await this.access.getWritableProject(userId, projectId);
+    await this.access.getWritableProject(userId, projectId); // fail fast before analysis
     const specification = await this.analyzer.analyze(input.prompt);
-    const latest = await this.prisma.client.projectRequirement.findFirst({
-      where: { projectId },
-      orderBy: { revision: 'desc' },
-      select: { revision: true },
-    });
-    try {
-      const row = await this.prisma.client.projectRequirement.create({
+    // The project lock serializes revision numbering and blocks a concurrent archive.
+    const row = await this.prisma.client.$transaction(async (tx) => {
+      await this.access.lockWritableProject(tx, userId, projectId);
+      const latest = await tx.projectRequirement.findFirst({
+        where: { projectId },
+        orderBy: { revision: 'desc' },
+        select: { revision: true },
+      });
+      return tx.projectRequirement.create({
         data: {
           projectId,
           revision: (latest?.revision ?? 0) + 1,
@@ -77,13 +78,8 @@ export class RequirementsService {
           createdById: userId,
         },
       });
-      return toDto(row);
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        throw new ConflictError('A concurrent requirement revision was created; retry');
-      }
-      throw error;
-    }
+    });
+    return toDto(row);
   }
 
   async list(userId: string, projectId: string): Promise<RequirementDto[]> {

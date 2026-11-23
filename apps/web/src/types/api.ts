@@ -16,8 +16,18 @@ export interface Project {
   name: string;
   description: string | null;
   status: 'ACTIVE' | 'ARCHIVED';
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type ProjectListStatus = 'active' | 'archived' | 'all';
+
+export interface Dashboard {
+  projectCount: { active: number; archived: number };
+  recentProjects: Project[];
+  recentBuilds: (Build & { projectName: string })[];
+  buildStatusSummary: Record<BuildStatus, number>;
 }
 
 export interface Requirement {

@@ -220,6 +220,8 @@ export class BuildsService {
 
     try {
       const build = await this.prisma.client.$transaction(async (tx) => {
+        // Re-check under the project lock so a concurrent archive cannot interleave.
+        await this.access.lockWritableProject(tx, userId, projectId);
         const created = await tx.buildJob.create({
           data: {
             projectId,
@@ -365,8 +367,8 @@ export class BuildsService {
   /** Start a new attempt of a FAILED or CANCELLED build (bounded by maxAttempts). */
   async retry(userId: string, buildJobId: string, correlationId: string): Promise<BuildDto> {
     const { projectId } = await this.access.assertBuildAccess(userId, buildJobId);
-    await this.access.getWritableProject(userId, projectId);
     await this.prisma.client.$transaction(async (tx) => {
+      await this.access.lockWritableProject(tx, userId, projectId); // project → build lock order
       const locked = await lockBuild(tx, buildJobId);
       if (!RETRYABLE_STATUSES.has(locked.status)) {
         throw new ConflictError(

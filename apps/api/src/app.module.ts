@@ -9,6 +9,7 @@ import { AllExceptionsFilter } from './common/http/all-exceptions.filter';
 import { ResponseEnvelopeInterceptor } from './common/http/response-envelope.interceptor';
 import { InfrastructureModule } from './infrastructure/infrastructure.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { HealthModule } from './modules/health/health.module';
 import { JobsModule } from './modules/jobs/jobs.module';
 import { ProjectsModule } from './modules/projects/projects.module';
@@ -44,6 +45,7 @@ export class AppModule {
         ProjectsModule,
         RequirementsModule,
         JobsModule,
+        DashboardModule,
       ],
       providers: [
         { provide: APP_INTERCEPTOR, useClass: ResponseEnvelopeInterceptor },

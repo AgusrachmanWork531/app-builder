@@ -279,3 +279,49 @@ select {
   background: var(--bg);
   color: var(--text);
 }
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.stats .card {
+  margin-bottom: 0;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-wide {
+  grid-column: span 2;
+}
+
+@media (max-width: 480px) {
+  .stat-wide {
+    grid-column: auto;
+  }
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.status-summary {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.requirement {
+  padding-top: 8px;
+}

@@ -21,6 +21,7 @@ export function SiteHeader() {
         </Link>
         {pathname !== '/login' && (
           <div className="nav-actions">
+            <Link href="/projects">Projects</Link>
             <Link href="/projects/new">New project</Link>
             <button type="button" className="link-button" onClick={() => void logout()}>
               Log out
