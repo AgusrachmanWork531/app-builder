@@ -1,22 +1,47 @@
 import { describe, expect, it } from 'vitest';
+import { findWorkspaceRoot } from './dotenv';
 import { InvalidEnvironmentError, apiEnvSchema, parseEnv, workerEnvSchema } from './env';
 
 const validApi = {
+  NODE_ENV: 'test',
   DATABASE_URL: 'postgresql://aab:aab@localhost:5432/aab',
   REDIS_URL: 'redis://localhost:6379',
   JWT_SECRET: 'a'.repeat(40),
 };
+const strongSecret = 'Zq3'.repeat(16);
 
 describe('parseEnv', () => {
   it('applies defaults for mock mode without any AI credentials', () => {
     const env = parseEnv(apiEnvSchema, validApi);
     expect(env.LLM_PROVIDER).toBe('mock');
     expect(env.API_PORT).toBe(4000);
-    expect(env.NODE_ENV).toBe('development');
+    expect(env.COOKIE_SECURE).toBe(false);
+    expect(env.API_DOCS_ENABLED).toBe(true);
   });
 
   it('fails fast when required variables are missing', () => {
     expect(() => parseEnv(apiEnvSchema, {})).toThrow(InvalidEnvironmentError);
+  });
+
+  it('requires NODE_ENV explicitly (no silent development default)', () => {
+    const { NODE_ENV: _omit, ...rest } = validApi;
+    expect(() => parseEnv(apiEnvSchema, rest)).toThrow(/NODE_ENV/);
+  });
+
+  it('uses secure defaults in production', () => {
+    const env = parseEnv(apiEnvSchema, {
+      ...validApi,
+      NODE_ENV: 'production',
+      JWT_SECRET: strongSecret,
+    });
+    expect(env.COOKIE_SECURE).toBe(true);
+    expect(env.API_DOCS_ENABLED).toBe(false);
+  });
+
+  it('rejects low-entropy-length secrets outside development', () => {
+    expect(() =>
+      parseEnv(apiEnvSchema, { ...validApi, NODE_ENV: 'production', JWT_SECRET: 'a'.repeat(40) }),
+    ).toThrow(/43 characters/);
   });
 
   it('rejects a short JWT secret', () => {
@@ -49,6 +74,13 @@ describe('parseEnv', () => {
     } catch (error) {
       expect((error as Error).message).not.toContain(secret);
     }
+  });
+
+  it('resolves a relative artifact path against the workspace root', () => {
+    const env = parseEnv(apiEnvSchema, { ...validApi, ARTIFACT_STORAGE_PATH: './.artifacts' });
+    expect(env.ARTIFACT_STORAGE_PATH).toBe(`${findWorkspaceRoot()}/.artifacts`);
+    const abs = parseEnv(apiEnvSchema, { ...validApi, ARTIFACT_STORAGE_PATH: '/tmp/x' });
+    expect(abs.ARTIFACT_STORAGE_PATH).toBe('/tmp/x');
   });
 
   it('rejects unknown agent runtimes for the worker', () => {

@@ -14,8 +14,7 @@
     "@aab/shared-types": "workspace:*",
     "next": "^16.4.6",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1",
-    "server-only": "^0.0.1"
+    "react-dom": "^19.3.1"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

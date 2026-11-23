@@ -1,6 +1,11 @@
+import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
+import { findWorkspaceRoot } from './dotenv';
 
-const nodeEnv = z.enum(['development', 'test', 'production']).default('development');
+// Required with no default: a deploy that forgets NODE_ENV must fail to start
+// rather than silently run with development behaviour (insecure cookies, docs).
+const nodeEnv = z.enum(['development', 'test', 'production']);
+const booleanFlag = z.enum(['true', 'false']).transform((v) => v === 'true');
 const logLevel = z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info');
 const positiveInt = (fallback: number) => z.coerce.number().int().positive().default(fallback);
 const optionalSecret = z
@@ -21,7 +26,20 @@ const baseFields = {
   LOG_LEVEL: logLevel,
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
   REDIS_URL: z.url({ protocol: /^rediss?$/ }),
-  ARTIFACT_STORAGE_PATH: z.string().min(1).default('./.artifacts'),
+  // Relative paths resolve against the monorepo root so API and worker agree
+  // on one location regardless of each process's working directory.
+  ARTIFACT_STORAGE_PATH: z
+    .string()
+    .min(1)
+    .default('./.artifacts')
+    .transform((path) =>
+      isAbsolute(path) ? path : resolve(findWorkspaceRoot() ?? process.cwd(), path),
+    ),
+  /** BullMQ key prefix; isolates environments (and test runs) sharing one Redis. */
+  QUEUE_PREFIX: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{1,64}$/)
+    .default('aab'),
   MAX_BUILD_ATTEMPTS: positiveInt(3),
   ...llmFields,
 };
@@ -55,19 +73,37 @@ export const apiEnvSchema = z
     JWT_SECRET: z.string().min(32, 'must be at least 32 characters'),
     JWT_EXPIRES_IN_SECONDS: positiveInt(3600),
     OUTBOX_POLL_INTERVAL_MS: positiveInt(1000),
+    /** Defaults to true outside development/test. */
+    COOKIE_SECURE: booleanFlag.optional(),
+    /** Swagger UI; defaults to enabled only in development/test. */
+    API_DOCS_ENABLED: booleanFlag.optional(),
   })
   .superRefine((env, ctx) => {
     requireProviderKey(env, ctx);
-    if (env.NODE_ENV === 'production') {
-      const lowered = env.JWT_SECRET.toLowerCase();
-      if (INSECURE_SECRET_MARKERS.some((marker) => lowered.includes(marker))) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['JWT_SECRET'],
-          message: 'looks like a placeholder; set a strong random secret in production',
-        });
-      }
+    const local = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
+    const lowered = env.JWT_SECRET.toLowerCase();
+    if (!local && INSECURE_SECRET_MARKERS.some((marker) => lowered.includes(marker))) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['JWT_SECRET'],
+        message: 'looks like a placeholder; set a strong random secret outside development',
+      });
     }
+    if (!local && env.JWT_SECRET.length < 43) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['JWT_SECRET'],
+        message: 'must be at least 43 characters (256-bit) outside development',
+      });
+    }
+  })
+  .transform((env) => {
+    const local = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
+    return {
+      ...env,
+      COOKIE_SECURE: env.COOKIE_SECURE ?? !local,
+      API_DOCS_ENABLED: env.API_DOCS_ENABLED ?? local,
+    };
   });
 
 export const workerEnvSchema = z
@@ -78,6 +114,8 @@ export const workerEnvSchema = z
     SANDBOX_PROVIDER: z.enum(['mock']).default('mock'),
     MAX_REPAIR_ATTEMPTS: z.coerce.number().int().min(0).max(10).default(2),
     BUILD_TIMEOUT_SECONDS: positiveInt(600),
+    /** Artificial per-step delay so mock progress is observable in the UI. */
+    MOCK_STEP_DELAY_MS: z.coerce.number().int().min(0).max(60_000).default(400),
     WORKER_ID: z.string().min(1).optional(),
   })
   .superRefine((env, ctx) => requireProviderKey(env, ctx));

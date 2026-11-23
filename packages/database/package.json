@@ -13,21 +13,23 @@
     "build": "prisma generate && tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --dir src",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
-    "db:seed": "prisma db seed"
+    "db:seed": "prisma db seed",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
+    "@aab/agent-core": "workspace:*",
     "@aab/shared-config": "workspace:*",
+    "@aab/shared-types": "workspace:*",
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
     "argon2": "^0.45.2",
     "pg": "^8.23.1"
   },
   "devDependencies": {
-    "@aab/shared-types": "workspace:*",
     "@types/pg": "^8.23.1",
     "prisma": "7.10.1"
   }

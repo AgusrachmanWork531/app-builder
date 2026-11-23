@@ -94,13 +94,15 @@ model ProjectRequirement {
   specification    Json
   /// Analyzer that produced the specification, e.g. "mock"
   analyzer         String   @db.VarChar(64)
-  createdById      String   @map("created_by_id") @db.Uuid
+  /// Null once the authoring user is deleted (project rows cascade via owner)
+  createdById      String?  @map("created_by_id") @db.Uuid
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  // NoAction (checked at end of statement) instead of Restrict so a cascading
-  // project/user delete can remove dependent rows within the same statement.
-  createdBy User       @relation(fields: [createdById], references: [id], onDelete: NoAction)
+  // SetNull, not Restrict/NoAction: Postgres fires RI checks and cascades as
+  // AFTER triggers in constraint-creation order, so a check on a row that a
+  // sibling cascade is about to delete can fail. SetNull is order-independent.
+  createdBy User?      @relation(fields: [createdById], references: [id], onDelete: SetNull)
   buildJobs BuildJob[]
 
   @@unique([projectId, revision])
@@ -112,7 +114,8 @@ model BuildJob {
   id                String      @id @default(uuid()) @db.Uuid
   projectId         String      @map("project_id") @db.Uuid
   requirementId     String      @map("requirement_id") @db.Uuid
-  requestedById     String      @map("requested_by_id") @db.Uuid
+  /// Null once the requesting user is deleted (see ProjectRequirement.createdBy)
+  requestedById     String?     @map("requested_by_id") @db.Uuid
   status            BuildStatus @default(PENDING)
   /// Current attempt number (incremented by explicit retry)
   attempt           Int         @default(1)
@@ -137,8 +140,10 @@ model BuildJob {
   updatedAt         DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   project     Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  requirement ProjectRequirement   @relation(fields: [requirementId], references: [id], onDelete: NoAction)
-  requestedBy User                 @relation(fields: [requestedById], references: [id], onDelete: NoAction)
+  // Requirements are append-only revisions; deleting one (only via project
+  // deletion) removes the builds that used it.
+  requirement ProjectRequirement   @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  requestedBy User?                @relation(fields: [requestedById], references: [id], onDelete: SetNull)
   events      BuildJobEvent[]
   plans       ExecutionPlan[]
   checkpoints WorkflowCheckpoint[]

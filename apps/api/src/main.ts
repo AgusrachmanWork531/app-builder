@@ -19,7 +19,7 @@ async function bootstrap(): Promise<void> {
 
   await app.listen(env.API_PORT);
   logger.log(
-    `API listening on :${env.API_PORT} (docs: ${env.NODE_ENV === 'production' ? 'disabled' : `/${API_DOCS_PATH}`})`,
+    `API listening on :${env.API_PORT} (docs: ${env.API_DOCS_ENABLED ? `/${API_DOCS_PATH}` : 'disabled'})`,
   );
 }
 

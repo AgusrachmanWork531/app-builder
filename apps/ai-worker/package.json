@@ -8,13 +8,15 @@
     "dev": "tsx watch --clear-screen=false src/main.ts",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --dir src",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@aab/agent-core": "workspace:*",
     "@aab/database": "workspace:*",
     "@aab/job-contracts": "workspace:*",
     "@aab/logger": "workspace:*",
+    "@aab/sandbox-adapters": "workspace:*",
     "@aab/shared-config": "workspace:*",
     "@aab/shared-types": "workspace:*",
     "bullmq": "^6.7.8",

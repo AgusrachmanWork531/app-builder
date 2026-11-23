@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import { SiteHeader } from '@/components/site-header';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -11,11 +12,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <header className="site-header">
-          <a href="/" className="brand">
-            AI App Builder Engine
-          </a>
-        </header>
+        <SiteHeader />
         <main className="container">{children}</main>
       </body>
     </html>

@@ -1,8 +1,13 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Public } from '../../common/auth/decorators';
+import { RawResponse } from '../../common/http/response-envelope.interceptor';
 import { HealthService, type ReadinessReport } from './health.service';
 
+/** Probes for orchestrators: unauthenticated and not wrapped in the API envelope. */
 @ApiTags('system')
+@Public()
+@RawResponse()
 @Controller('health')
 export class HealthController {
   constructor(private readonly health: HealthService) {}

@@ -3,9 +3,8 @@ import { createPrismaClient } from '@aab/database';
 import { BUILD_QUEUE_NAME } from '@aab/job-contracts';
 import { createLogger } from '@aab/logger';
 import { loadWorkspaceDotenv, parseEnv, workerEnvSchema } from '@aab/shared-config';
-import { Worker } from 'bullmq';
 import { Redis } from 'ioredis';
-import { createBuildJobProcessor } from './processors/build-job.processor';
+import { createBuildWorker } from './execution/create-worker';
 
 const SHUTDOWN_GRACE_MS = 30_000;
 
@@ -25,14 +24,14 @@ async function main(): Promise<void> {
   const connection = new Redis(env.REDIS_URL, { maxRetriesPerRequest: null });
   connection.on('error', (error) => logger.error({ err: error }, 'redis connection error'));
 
-  const worker = new Worker(
-    BUILD_QUEUE_NAME,
-    createBuildJobProcessor({ prisma, logger, workerId }),
-    {
-      connection,
-      concurrency: env.WORKER_CONCURRENCY,
-    },
-  );
+  const worker = createBuildWorker({
+    env,
+    prisma,
+    connection,
+    logger,
+    workerId,
+    queueName: BUILD_QUEUE_NAME,
+  });
   worker.on('failed', (job, error) =>
     logger.warn({ queueJobId: job?.id, errorMessage: error.message }, 'queue job failed'),
   );

@@ -3,9 +3,16 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { buildLoggerOptions } from '@aab/logger';
 import type { ApiEnv } from '@aab/shared-config';
 import { type DynamicModule, Module } from '@nestjs/common';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
+import { AllExceptionsFilter } from './common/http/all-exceptions.filter';
+import { ResponseEnvelopeInterceptor } from './common/http/response-envelope.interceptor';
 import { InfrastructureModule } from './infrastructure/infrastructure.module';
+import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
+import { JobsModule } from './modules/jobs/jobs.module';
+import { ProjectsModule } from './modules/projects/projects.module';
+import { RequirementsModule } from './modules/requirements/requirements.module';
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 
@@ -32,7 +39,15 @@ export class AppModule {
           },
         }),
         InfrastructureModule.register(env),
+        AuthModule.register(env),
         HealthModule,
+        ProjectsModule,
+        RequirementsModule,
+        JobsModule,
+      ],
+      providers: [
+        { provide: APP_INTERCEPTOR, useClass: ResponseEnvelopeInterceptor },
+        { provide: APP_FILTER, useClass: AllExceptionsFilter },
       ],
     };
   }

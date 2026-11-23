@@ -1,24 +1,41 @@
-import { getApiReadiness } from '@/services/system';
+'use client';
 
-export const dynamic = 'force-dynamic';
+import Link from 'next/link';
+import { EmptyState, ErrorMessage, Loading, MockNotice, formatDate } from '@/components/ui';
+import { useApi } from '@/hooks/use-api';
+import { api } from '@/services/api-client';
 
-export default async function HomePage() {
-  const readiness = await getApiReadiness();
+export default function DashboardPage() {
+  const projects = useApi(() => api.listProjects(1, 20), []);
 
   return (
-    <section className="card">
-      <h1>AI App Builder Engine</h1>
-      <p className="muted">
-        Mock mode: builds are simulated and every artifact is labeled as mock.
-      </p>
-      <p>
-        API status:{' '}
-        {readiness.ok ? (
-          <strong className="status-ok">ready</strong>
-        ) : (
-          <strong className="status-error">unavailable ({readiness.reason})</strong>
+    <>
+      <MockNotice />
+      <section className="card">
+        <div className="row-between">
+          <h1>Projects</h1>
+          <Link href="/projects/new" className="button">
+            New project
+          </Link>
+        </div>
+        {projects.loading && <Loading />}
+        {projects.error && <ErrorMessage message={projects.error} />}
+        {projects.data && projects.data.data.length === 0 && (
+          <EmptyState>
+            No projects yet. <Link href="/projects/new">Create your first project</Link>.
+          </EmptyState>
         )}
-      </p>
-    </section>
+        {projects.data && projects.data.data.length > 0 && (
+          <ul className="list" aria-label="Projects">
+            {projects.data.data.map((project) => (
+              <li key={project.id}>
+                <Link href={`/projects/${project.id}`}>{project.name}</Link>
+                <span className="muted small"> · updated {formatDate(project.updatedAt)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </>
   );
 }

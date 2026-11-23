@@ -1,0 +1,21 @@
+{
+  "name": "@aab/sandbox-adapters",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SandboxProvider implementations. Only the mock provider exists; real execution is disabled.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aab/agent-core": "workspace:*",
+    "@aab/shared-types": "workspace:*"
+  }
+}
